@@ -3,11 +3,13 @@ import base64
 import json
 import os
 import re
+import time
 
 import requests
 
 BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-lite-latest")
+RETRY_STATUS = {429, 500, 502, 503, 504}
 
 MIME = {
     ".m4a": "audio/mp4",
@@ -41,12 +43,27 @@ def generate(parts: list[dict], system: str | None = None, json_mode: bool = Tru
     if system:
         body["systemInstruction"] = {"parts": [{"text": system}]}
 
-    response = requests.post(
-        f"{BASE}/{MODEL}:generateContent",
-        headers={"x-goog-api-key": _key(), "Content-Type": "application/json"},
-        json=body,
-        timeout=timeout,
-    )
+    response = None
+    for attempt in range(6):
+        try:
+            response = requests.post(
+                f"{BASE}/{MODEL}:generateContent",
+                headers={"x-goog-api-key": _key(), "Content-Type": "application/json"},
+                json=body,
+                timeout=timeout,
+            )
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            if attempt == 5:
+                raise RuntimeError(f"Gemini did not answer: {exc}") from exc
+            time.sleep(min(2 ** attempt + 1, 30))
+            continue
+        if response.status_code not in RETRY_STATUS:
+            break
+        # capacity spikes are routine; wait them out instead of failing the video
+        if attempt == 5:
+            break
+        time.sleep(min(2 ** attempt + 1, 30))
+
     if response.status_code >= 400:
         detail = response.text[:300]
         try:
