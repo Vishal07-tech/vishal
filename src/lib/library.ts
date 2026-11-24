@@ -90,7 +90,7 @@ export async function addVideo(url: string): Promise<{ video: Video; reused: boo
   }
 
   throw new ApiError(
-    'Set a server address in Settings to process links, or add a Gemini key for on-device mode.',
+    'No server set yet. Open Settings and add the address of your server before adding a link.',
     0,
   );
 }

@@ -157,7 +157,21 @@ export default function AddScreen() {
             )}
           </Pressable>
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          {error ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.error}>{error}</Text>
+              {/Settings/.test(error) ? (
+                <Pressable
+                  onPress={() => router.push('/settings')}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.errorAction, pressed && styles.pressed]}
+                >
+                  <Text style={styles.errorActionLabel}>Open Settings</Text>
+                  <Ionicons name="arrow-forward" size={14} color={color.accent} />
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
 
           {job ? (
             <View style={styles.card}>
@@ -251,13 +265,15 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.35 },
   pressed: { opacity: 0.8 },
   primaryLabel: { fontFamily: fonts.sansSemi, fontSize: 15, color: color.accentInk },
+  errorBox: { marginTop: space.md, gap: space.sm },
   error: {
     fontFamily: fonts.sans,
     fontSize: 13.5,
     lineHeight: 20,
     color: color.danger,
-    marginTop: space.md,
   },
+  errorAction: { flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start' },
+  errorActionLabel: { fontFamily: fonts.sansSemi, fontSize: 13, color: color.accent },
   card: {
     marginTop: space.xl,
     padding: space.lg,

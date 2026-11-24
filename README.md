@@ -60,7 +60,9 @@ npm install
 npx expo start
 ```
 
-In **Settings**, set the server address (e.g. `http://192.168.1.20:8787`) and the `API_TOKEN` from the server's `.env`. Press **Save and test server**.
+In **Settings**, set the server address and the `API_TOKEN` from the server's `.env`, then press **Save and test server**.
+
+On a phone, the address cannot be `localhost` — `localhost` means the phone itself. Use your computer's LAN address, for example `http://192.168.1.20:8787`, and make sure the phone is on the same network. For a deployed server use its public URL.
 
 ## Deploy
 
