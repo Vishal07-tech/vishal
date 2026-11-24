@@ -6,15 +6,16 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "vishal",
-    "userInterfaceStyle": "light",
-    "backgroundColor": "#F7F8F4",
+    "owner": "bharathi07s-team",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0A0A0B",
     "ios": {
       "icon": "./assets/expo.icon"
     },
     "android": {
       "package": "app.vishal.reader",
       "adaptiveIcon": {
-        "backgroundColor": "#F7F8F4",
+        "backgroundColor": "#0A0A0B",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -30,7 +31,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#F7F8F4",
+          "backgroundColor": "#0A0A0B",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
