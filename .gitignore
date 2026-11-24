@@ -46,4 +46,6 @@ server/.env
 server/data/
 server/.venv/
 tools/
+__pycache__/
+*.pyc
 
