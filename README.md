@@ -1,56 +1,79 @@
-# Welcome to your Expo app 👋
+# YouTube Recall
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Paste a YouTube link, get a reading page: a grounded summary, timestamped key moments that open the video at that second, and the formulas and numbers worth keeping.
 
-## Get started
+Built with Expo (Android APK via EAS) and a small FastAPI backend.
 
-1. Install dependencies
+## What it does
 
-   ```bash
-   npm install
-   ```
+1. You paste a YouTube URL.
+2. The server downloads the audio (`yt-dlp`), splits it into ten-minute pieces, and transcribes it.
+3. Three passes turn the transcript into notes, key moments, and takeaways.
+4. Every item must carry the segment it came from and a verbatim quote. A validator checks the quote against the transcript; anything unsupported is dropped, never reworded.
+5. The app shows the summary, the moments (tap to open YouTube at that second), the takeaways with LaTeX formulas, and the full transcript.
 
-2. Start the app
+Nothing is added that the speaker did not say.
 
-   ```bash
-   npx expo start
-   ```
+## Models
 
-In the output, you'll find options to open the app in a
+The server tells you which models it uses at `GET /health`.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+| Job | Default (Groq) | Alternative (Gemini) |
+| --- | --- | --- |
+| Speech to text with timestamps | `whisper-large-v3-turbo` | `gemini-flash-lite-latest` |
+| Notes, moments, takeaways | `qwen/qwen3-32b` | `gemini-flash-lite-latest` |
 
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+Set `LLM_PROVIDER=groq` or `LLM_PROVIDER=gemini` in `server/.env`.
 
-## Get a fresh project
+## Layout
 
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+src/                 Expo app (expo-router)
+  app/(tabs)/        Library, Reader, Add, Settings
+  app/video/[id]     The reading surface
+  lib/               API client, theme, formatting, device cache
+  components/        Timecode, moment row, formula, cards
+server/              FastAPI backend
+  pipeline.py        fetch -> transcribe -> structure -> validate -> store
+  fetch.py           yt-dlp audio, captions, ffmpeg split
+  llm.py             Groq calls, prompts, quote validation
+  gemini.py          Gemini provider
+  db.py              SQLite schema and helpers
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+## Run the backend
 
-### Other setup steps
+```bash
+cd server
+python -m venv .venv
+.venv/Scripts/pip install -r requirements.txt   # Windows
+cp .env.example .env                            # then add a key
+.venv/Scripts/python -m uvicorn app:app --port 8787
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+`ffmpeg` must be on `PATH`, or set `FFMPEG_PATH`.
 
-## Learn more
+## Run the app
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+npm install
+npx expo start
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+In **Settings**, set the server address (e.g. `http://192.168.1.20:8787`) and the `API_TOKEN` from the server's `.env`. Press **Save and test server**.
 
-## Join the community
+## Deploy
 
-Join our community of developers creating universal apps.
+`server/fly.toml` and `server/Dockerfile` are ready for Fly.io. A volume is needed for the SQLite file:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+fly volumes create vishal_data --size 1
+fly secrets set API_TOKEN=<long-random> GROQ_API_KEY=<key>
+fly deploy
+```
+
+## Notes and limits
+
+- YouTube serves caption tracks empty to unauthenticated clients, so the app always goes through the server for a link; the phone cannot download audio itself.
+- Downloads can be blocked by YouTube depending on the host IP. Export `cookies.txt` and set `YT_COOKIES_FILE` if that happens.
+- One worker processes one video at a time. Jobs survive a restart and are re-queued on startup.
