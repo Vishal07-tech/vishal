@@ -65,6 +65,7 @@ def run(video_id: str) -> None:
                 db.set_status(video_id, "processing", "transcribing",
                               0.2 + 0.35 * (i + 1) / len(parts))
             segments = [{"idx": i, **row} for i, row in enumerate(_dedupe(collected))]
+            segments = _clamp(segments, meta.get("duration_s") or 0)
 
         if len(" ".join(s["text"] for s in segments)) < 400:
             raise RuntimeError("The transcript came back too short to summarise. Try another video.")
@@ -114,6 +115,19 @@ def run(video_id: str) -> None:
         print(f"[pipeline] {video_id} failed: {exc}\n{traceback.format_exc()}")
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _clamp(rows: list[dict], duration_s: float) -> list[dict]:
+    """Model-estimated times can overshoot the video; keep every marker inside it."""
+    if not duration_s:
+        return rows
+    limit = int(duration_s * 1000)
+    out = []
+    for row in rows:
+        start = min(int(row["start_ms"]), max(limit - 800, 0))
+        end = min(max(int(row["end_ms"]), start + 500), limit)
+        out.append({**row, "start_ms": start, "end_ms": end})
+    return out
 
 
 def _dedupe(rows: list[dict]) -> list[dict]:

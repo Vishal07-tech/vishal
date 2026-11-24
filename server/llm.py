@@ -257,7 +257,7 @@ Return JSON exactly in this shape:
 
 Rules:
 - gist: one sentence under 18 words, what the viewer actually gets.
-- summary: 140 to 220 words in the transcript's language. Only claims present in the notes. No advice, no outside context, no "this video explains". Start with the substance.
+- summary: 140 to 220 words (about 8 to 12 sentences) in the transcript's language, following the speaker's own order from opening to close. Only claims present in the notes. No advice, no outside context, no "this video explains". Start with the substance.
 - category: one from the list.
 - keep_moments: indexes (1-based) of at most 12 candidates worth marking, in playback order.
 - keep_takeaways: indexes (1-based) of at most 8, in playback order.
