@@ -16,7 +16,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { ApiError, type Video } from '../../lib/api';
 import { addVideo, getVideo, retryVideo } from '../../lib/library';
-import { cacheReader } from '../../lib/cache';
 import { stageLabel } from '../../lib/format';
 import { color, radius, space, type as fonts } from '../../lib/theme';
 import { BrandHeader } from '../../components/brand-header';

@@ -39,7 +39,7 @@ export default function ReaderScreen() {
   const [offline, setOffline] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async function load() {
     if (!id) return;
     try {
       const data = await getReader(String(id));
@@ -50,7 +50,7 @@ export default function ReaderScreen() {
       if (data.video.status === 'ready') {
         await cacheReader(data);
       } else if (data.video.status === 'queued' || data.video.status === 'processing') {
-        timer.current = setTimeout(load, 3000);
+        timer.current = setTimeout(() => { void load(); }, 3000);
       }
     } catch (caught) {
       const cached = await cachedReader(String(id));

@@ -7,9 +7,12 @@ export type Settings = {
 
 const KEY = 'vishal.settings.v1';
 
+// The hosted server is the default so a fresh install works straight away.
+// Both values can be overridden at build time with EXPO_PUBLIC_* variables,
+// which keeps the access token out of the repository.
 export const DEFAULT_SETTINGS: Settings = {
-  baseUrl: '',
-  token: '',
+  baseUrl: normaliseBaseUrl(process.env.EXPO_PUBLIC_API_URL || 'https://vishal-api.fly.dev'),
+  token: process.env.EXPO_PUBLIC_API_TOKEN || '',
 };
 
 export async function getSettings(): Promise<Settings> {

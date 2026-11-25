@@ -48,27 +48,47 @@ def run(video_id: str) -> None:
         if tier == "audio":
             stage = "transcribing"
             db.set_status(video_id, "processing", "transcribing", 0.2)
+            # Gemini returns one JSON document per piece. Five-minute pieces keep
+            # that document well under the model's output limit and give the Fly
+            # machine smaller units of work to resume after a suspend.
+            chunk_s = 300 if llm.PROVIDER == "gemini" else 600
             parts = fetch.split_audio(audio, workdir, force=(llm.PROVIDER == "gemini"),
-                                      chunk_s=600)
+                                      chunk_s=chunk_s)
+            # A Fly machine can be suspended or stopped mid-job. Finished pieces
+            # are kept in SQLite so the next run resumes instead of paying for
+            # every transcription again.
+            saved = db.transcript_parts(video_id, chunk_s)
             offset_ms = 0
             collected: list[dict] = []
             for i, part in enumerate(parts):
-                result = llm.transcribe(part, language=language)
-                language = language or result.get("language")
-                for seg in result["segments"]:
+                cached = saved.get(i)
+                if cached and isinstance(cached.get("payload"), dict):
+                    result = cached["payload"]
+                else:
+                    result = llm.transcribe(part, language=language)
+                    part_language = result.get("language") or language
+                    db.save_transcript_part(video_id, i, chunk_s, part_language, result)
+                    saved[i] = {"language": part_language, "payload": result}
+                language = language or result.get("language") or (cached or {}).get("language")
+                for seg in result.get("segments") or []:
                     collected.append({
                         "start_ms": seg["start_ms"] + offset_ms,
                         "end_ms": seg["end_ms"] + offset_ms,
                         "text": seg["text"],
                     })
-                offset_ms += 600_000 if len(parts) > 1 else 0
+                # Use the real chunk length: splitting at key frames is not always
+                # exactly 600 seconds, and fixed offsets drift on long videos.
+                offset_ms += int((fetch.media_duration(part) or 600) * 1000)
                 db.set_status(video_id, "processing", "transcribing",
                               0.2 + 0.35 * (i + 1) / len(parts))
             segments = [{"idx": i, **row} for i, row in enumerate(_dedupe(collected))]
             segments = _clamp(segments, meta.get("duration_s") or 0)
 
-        if len(" ".join(s["text"] for s in segments)) < 400:
-            raise RuntimeError("The transcript came back too short to summarise. Try another video.")
+        chars = len(" ".join(s["text"] for s in segments))
+        if chars < 400:
+            raise RuntimeError(
+                f"The transcript came back too short ({chars} characters from {tier or 'captions'}). "
+                "Try another video.")
 
         db.save_meta(video_id, language=language)
         db.replace_segments(video_id, segments)
@@ -110,6 +130,7 @@ def run(video_id: str) -> None:
                      summary_lang=language, category=final["category"],
                      category_confidence=final["category_confidence"])
         db.set_status(video_id, "ready", "done", 1.0)
+        db.clear_transcript_parts(video_id)
     except Exception as exc:  # surface the reason to the app instead of a bare 500
         db.set_status(video_id, "failed", stage, None, str(exc)[:400])
         print(f"[pipeline] {video_id} failed: {exc}\n{traceback.format_exc()}")

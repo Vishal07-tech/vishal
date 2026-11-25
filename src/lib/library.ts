@@ -10,10 +10,6 @@ import { getGeminiKey } from './keys';
 import { getSettings, normaliseBaseUrl } from './settings';
 import { parseYouTubeId } from './youtube';
 
-async function hasKey(): Promise<boolean> {
-  return !!(await getGeminiKey());
-}
-
 async function serverBase(): Promise<string> {
   const settings = await getSettings();
   return normaliseBaseUrl(settings.baseUrl);

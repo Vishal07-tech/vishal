@@ -97,7 +97,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ ok: boolean; model: string; asr: string; groq_key: boolean }>('/health'),
+  health: () =>
+    request<{
+      ok: boolean;
+      model: string;
+      asr: string;
+      provider?: string;
+      groq_key?: boolean;
+      model_key?: boolean;
+    }>('/health'),
+
 
   addVideo: (url: string) =>
     request<{ video: Video; reused: boolean }>('/videos', {

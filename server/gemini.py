@@ -30,7 +30,9 @@ def _key() -> str:
 
 
 def generate(parts: list[dict], system: str | None = None, json_mode: bool = True,
-             max_tokens: int = 3500, temperature: float = 0.2, timeout: int = 600) -> str:
+             max_tokens: int = 3500, temperature: float = 0.2, timeout: int = 600,
+             return_finish: bool = False,
+             schema: dict | None = None) -> str | tuple[str, str | None]:
     body: dict = {
         "contents": [{"role": "user", "parts": parts}],
         "generationConfig": {
@@ -40,6 +42,8 @@ def generate(parts: list[dict], system: str | None = None, json_mode: bool = Tru
     }
     if json_mode:
         body["generationConfig"]["responseMimeType"] = "application/json"
+    if schema:
+        body["generationConfig"]["responseSchema"] = schema
     if system:
         body["systemInstruction"] = {"parts": [{"text": system}]}
 
@@ -81,7 +85,8 @@ def generate(parts: list[dict], system: str | None = None, json_mode: bool = Tru
     text = "".join(part.get("text", "") for part in parts_out).strip()
     if not text:
         raise RuntimeError("Gemini returned an empty answer")
-    return text
+    finish = candidates[0].get("finishReason")
+    return (text, finish) if return_finish else text
 
 
 def json_call(system: str, user: str, max_tokens: int = 3000) -> dict:
@@ -105,6 +110,28 @@ Rules:
 - If the audio is music or silence, return {"language": "en", "segments": []}.
 - Output JSON only."""
 
+# Structured output stops the model from emitting raw newlines or stray quotes
+# inside transcript strings, which made otherwise good transcripts unusable.
+TRANSCRIBE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "language": {"type": "STRING"},
+        "segments": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "start": {"type": "NUMBER"},
+                    "end": {"type": "NUMBER"},
+                    "text": {"type": "STRING"},
+                },
+                "required": ["start", "end", "text"],
+            },
+        },
+    },
+    "required": ["language", "segments"],
+}
+
 
 def transcribe(path: str, language: str | None = None) -> dict:
     ext = os.path.splitext(path)[1].lower()
@@ -116,17 +143,29 @@ def transcribe(path: str, language: str | None = None) -> dict:
     if language:
         prompt += f"\nThe expected language is {language}."
 
-    raw = generate(
-        [{"text": prompt}, {"inline_data": {"mime_type": mime, "data": encoded}}],
-        json_mode=True,
-        max_tokens=8192,
-        temperature=0.0,
-        timeout=900,
-    )
+    parts = [{"text": prompt}, {"inline_data": {"mime_type": mime, "data": encoded}}]
+    finish = None
+    # A ten-minute clip can produce a very large JSON document. Start with a
+    # generous budget and retry at the model ceiling if Gemini still truncates.
+    for budget in (32768, 65536):
+        answer = generate(parts, json_mode=True, max_tokens=budget,
+                          temperature=0.0, timeout=900, return_finish=True,
+                          schema=TRANSCRIBE_SCHEMA)
+        raw, finish = answer  # type: ignore[misc]
+        if finish != "MAX_TOKENS":
+            break
     raw = re.sub(r"^```(?:json)?|```$", "", raw.strip()).strip()
     start, end = raw.find("{"), raw.rfind("}")
-    data = json.loads(raw[start:end + 1]) if start != -1 else {}
+    if start == -1 or end == -1:
+        raise RuntimeError(f"Gemini returned no transcript JSON: {raw[:200]}")
+    try:
+        data = json.loads(raw[start:end + 1], strict=False)
+    except json.JSONDecodeError as exc:
+        clipped = " (output hit Gemini's token limit)" if finish == "MAX_TOKENS" else ""
+        raise RuntimeError(f"Gemini returned a broken transcript{clipped}: {raw[:200]}") from exc
 
+    if not isinstance(data, dict):
+        raise RuntimeError("Gemini returned transcript JSON in an unexpected shape")
     rows = []
     for item in data.get("segments") or []:
         text = (item.get("text") or "").strip()

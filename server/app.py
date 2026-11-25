@@ -140,6 +140,7 @@ def set_category(video_id: str, body: CategoryBody, _: None = Depends(auth)) -> 
 
 @app.delete("/videos/{video_id}")
 def delete_video(video_id: str, _: None = Depends(auth)) -> dict:
+    db.clear_transcript_parts(video_id)
     with db.db() as con:
         for table in ("segments", "moments", "takeaways", "videos"):
             con.execute(f"DELETE FROM {table} WHERE {'id' if table == 'videos' else 'video_id'} = ?",

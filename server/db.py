@@ -1,4 +1,5 @@
 """SQLite storage. One file, WAL, opened per call so threads never share a handle."""
+import json
 import os
 import sqlite3
 import time
@@ -39,6 +40,19 @@ CREATE TABLE IF NOT EXISTS segments (
   PRIMARY KEY (video_id, idx)
 );
 CREATE INDEX IF NOT EXISTS segments_video ON segments(video_id, start_ms);
+
+-- Completed transcription pieces survive a restart, so long videos do not
+-- start from the beginning when the machine suspends or times out. chunk_s is
+-- stored with each part: cached audio from an old split length is never reused
+-- with new timestamps.
+CREATE TABLE IF NOT EXISTS transcript_parts (
+  video_id TEXT NOT NULL,
+  part_idx INTEGER NOT NULL,
+  chunk_s  INTEGER NOT NULL DEFAULT 600,
+  language TEXT,
+  payload  TEXT NOT NULL,
+  PRIMARY KEY (video_id, part_idx, chunk_s)
+);
 
 CREATE TABLE IF NOT EXISTS moments (
   video_id    TEXT NOT NULL,
@@ -91,6 +105,13 @@ def db():
 def init() -> None:
     with db() as con:
         con.executescript(SCHEMA)
+        columns = {row["name"] for row in
+                   con.execute("PRAGMA table_info(transcript_parts)")}
+        if "chunk_s" not in columns:
+            # The old cache cannot distinguish split lengths; drop it rather
+            # than reuse stale timestamps on a long video.
+            con.execute("DROP TABLE transcript_parts")
+            con.executescript(SCHEMA)
 
 
 def get_video(video_id: str) -> dict | None:
@@ -137,6 +158,34 @@ def takeaways(video_id: str) -> list[dict]:
         return [dict(r) for r in con.execute(
             "SELECT idx, kind, text, latex, start_ms, segment_idx, quote FROM takeaways WHERE video_id = ? ORDER BY start_ms",
             (video_id,)).fetchall()]
+
+
+def transcript_parts(video_id: str, chunk_s: int) -> dict[int, dict]:
+    with db() as con:
+        rows = con.execute(
+            """SELECT part_idx, language, payload FROM transcript_parts
+               WHERE video_id = ? AND chunk_s = ? ORDER BY part_idx""",
+            (video_id, chunk_s)).fetchall()
+    return {
+        row["part_idx"]: {"language": row["language"], "payload": json.loads(row["payload"])}
+        for row in rows
+    }
+
+
+def save_transcript_part(video_id: str, part_idx: int, chunk_s: int,
+                         language: str | None, payload: dict) -> None:
+    with db() as con:
+        con.execute(
+            """INSERT INTO transcript_parts (video_id, part_idx, chunk_s, language, payload)
+               VALUES (?,?,?,?,?)
+               ON CONFLICT(video_id, part_idx, chunk_s) DO UPDATE SET
+                 language = excluded.language, payload = excluded.payload""",
+            (video_id, part_idx, chunk_s, language, json.dumps(payload)))
+
+
+def clear_transcript_parts(video_id: str) -> None:
+    with db() as con:
+        con.execute("DELETE FROM transcript_parts WHERE video_id = ?", (video_id,))
 
 
 def set_status(video_id: str, status: str, stage: str | None = None,

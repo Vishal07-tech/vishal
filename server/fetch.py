@@ -8,6 +8,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -27,15 +28,52 @@ def parse_youtube_id(url: str) -> str | None:
     return None
 
 
-def ffmpeg_path() -> str:
+def ffmpeg_path() -> str | None:
+    """Return a real, absolute path to ffmpeg, or None when it is not installed.
+
+    yt-dlp treats an empty ``ffmpeg_location`` as a broken directory and silently
+    disables postprocessing, which is why the server used to fall back to captions.
+    """
     env = os.environ.get("FFMPEG_PATH")
     if env and os.path.exists(env):
-        return env
-    for pattern in (r"D:\vishal\tools\ffmpeg\**\bin\ffmpeg.exe", "ffmpeg", "/usr/bin/ffmpeg"):
-        hits = glob.glob(pattern, recursive=True) if "*" in pattern else []
-        if hits:
-            return hits[0]
-    return "ffmpeg"
+        return os.path.abspath(env)
+    found = shutil.which("ffmpeg")
+    if found:
+        return os.path.abspath(found)
+    for candidate in ("/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg",
+                      r"D:\vishal\tools\ffmpeg\bin\ffmpeg.exe"):
+        if os.path.exists(candidate):
+            return os.path.abspath(candidate)
+    return None
+
+
+def ffprobe_path() -> str | None:
+    found = shutil.which("ffprobe")
+    if found:
+        return os.path.abspath(found)
+    ffmpeg = ffmpeg_path()
+    if ffmpeg:
+        name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+        candidate = os.path.join(os.path.dirname(ffmpeg), name)
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def media_duration(path: str) -> float:
+    """Seconds of an audio chunk, used to keep long-video timestamps honest."""
+    probe = ffprobe_path()
+    if not probe:
+        return 0.0
+    result = subprocess.run(
+        [probe, "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=nw=1:nk=1", path],
+        capture_output=True, text=True, timeout=60, check=False,
+    )
+    try:
+        return float(result.stdout.strip())
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _base_opts() -> dict:
@@ -68,13 +106,17 @@ def metadata(youtube_id: str) -> dict:
 def download_audio(youtube_id: str, workdir: str) -> str:
     os.makedirs(workdir, exist_ok=True)
     url = f"https://www.youtube.com/watch?v={youtube_id}"
+    ffmpeg = ffmpeg_path()
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is not installed, so the audio cannot be extracted")
     opts = _base_opts()
     opts.update({
         "format": "bestaudio/best",
         "outtmpl": os.path.join(workdir, "audio.%(ext)s"),
         "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "m4a",
                             "preferredquality": "64"}],
-        "ffmpeg_location": os.path.dirname(ffmpeg_path()),
+        # Pass the binary itself. An empty directory makes yt-dlp skip ffmpeg entirely.
+        "ffmpeg_location": ffmpeg,
     })
     with yt_dlp.YoutubeDL(opts) as ydl:
         ydl.download([url])
@@ -186,12 +228,15 @@ def _merge(rows: list[dict]) -> list[dict]:
 
 def split_audio(path: str, workdir: str, max_bytes: int = 22 * 1024 * 1024,
                 force: bool = False, chunk_s: int = 600) -> list[str]:
-    """Whisper uploads cap out around 25 MB; Gemini takes ten-minute pieces with offsets."""
+    """Whisper uploads cap out around 25 MB; Gemini takes short pieces with offsets."""
     if not force and os.path.getsize(path) <= max_bytes:
         return [path]
+    ffmpeg = ffmpeg_path()
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is not installed, so long audio cannot be split")
     pattern = os.path.join(workdir, "part-%03d.m4a")
     subprocess.run(
-        [ffmpeg_path(), "-hide_banner", "-loglevel", "error", "-y", "-i", path,
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", path,
          "-f", "segment", "-segment_time", str(chunk_s), "-c", "copy", pattern],
         check=True, timeout=1800)
     parts = sorted(glob.glob(os.path.join(workdir, "part-*.m4a")))

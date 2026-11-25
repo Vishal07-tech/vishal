@@ -18,7 +18,7 @@ import { clearCache } from '../../lib/cache';
 import { getGeminiKey, setGeminiKey } from '../../lib/keys';
 import { GEMINI_MODEL, testGeminiKey, GeminiError } from '../../lib/gemini';
 import { getSettings, saveSettings, normaliseBaseUrl } from '../../lib/settings';
-import { color, radius, space, type as fonts } from '../../lib/theme';
+import { color, space, type as fonts } from '../../lib/theme';
 import { BrandHeader } from '../../components/brand-header';
 import { Card, cardStyles } from '../../components/card';
 
@@ -52,8 +52,7 @@ export default function SettingsScreen() {
       setBaseUrl(settings.baseUrl);
       setToken(settings.token);
     });
-    countNotes();
-  }, [countNotes]);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -108,10 +107,11 @@ export default function SettingsScreen() {
     try {
       await saveSettings({ baseUrl: normaliseBaseUrl(baseUrl), token: token.trim() });
       const result = await api.health();
-      setServerTone(result.groq_key ? 'ok' : 'bad');
+      const connected = result.model_key ?? result.groq_key ?? false;
+      setServerTone(connected ? 'ok' : 'bad');
       setServerNote(
-        result.groq_key
-          ? `Server awake. ${result.asr} for speech, ${result.model} for notes.`
+        connected
+          ? `Connected. ${result.asr} for speech, ${result.model} for notes.`
           : 'Server awake, but it has no model key of its own.',
       );
     } catch (caught) {
@@ -146,8 +146,9 @@ export default function SettingsScreen() {
           }
         >
           <Text style={cardStyles.body}>
-            The key is stored in this device's keystore and only ever travels to Google. When the
-            phone can read a video's own captions, notes are produced here with no server involved.
+            The key is stored in this device&apos;s keystore and only ever travels to Google. When
+            the phone can read a video&apos;s own captions, notes are produced here with no server
+            involved.
           </Text>
 
           <Text style={styles.label}>Gemini API key</Text>
@@ -206,8 +207,8 @@ export default function SettingsScreen() {
           right={<Text style={styles.side}>{noteCount} notes saved</Text>}
         >
           <Text style={cardStyles.body}>
-            Plus saved summaries and transcripts live in this phone's storage, so they open without
-            a connection.
+            Plus saved summaries and transcripts live in this phone&apos;s storage, so they open
+            without a connection.
           </Text>
           <Pressable onPress={wipe} accessibilityRole="button" style={styles.ghost}>
             <Ionicons name="trash-outline" size={15} color={color.text} />
